@@ -16,7 +16,7 @@ from mido import Message, MidiFile, MidiTrack, bpm2tempo, MetaMessage
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# CSV with mood, n1,d1,n2,d2,... columns
+# CSV with columns: mood,n1,d1,n2,d2,... (nX=pitch, dX=duration in beats)
 DATA_FILE = os.path.join(BASE_DIR, "melodies.csv")
 
 # Path to fluidsynth.exe
@@ -45,6 +45,23 @@ MOOD_TEMPO = {
     "rock":  140,
 }
 
+# General MIDI program numbers (0-based)
+# Distinct guitar tones per mood
+GUITAR_PROGRAMS = {
+    "blues": 27,  # Electric Guitar (clean)
+    "jazz":  26,  # Electric Guitar (jazz)
+    "rock":  30,  # Distortion Guitar (more aggressive than overdrive)
+}
+
+# For non-rock moods, we randomly pick from these "non-rock" tones:
+# 0: Acoustic Grand Piano
+# 24: Nylon Guitar
+# 25: Steel Guitar
+# 26: Jazz Guitar
+# 27: Clean Electric Guitar
+# 31: Guitar Harmonics
+OTHER_INSTRUMENT_CHOICES = [0, 24, 25, 26, 27, 31]
+
 
 # ----------------- MARKOV MODEL LOGIC -----------------
 
@@ -53,17 +70,18 @@ def load_dataset(path):
     Load melodies.csv and return list of (mood, pitches[], durations[]).
 
     Handles missing values gracefully.
-    Only loads pairs where BOTH nX and dX are present and valid numbers.
+    Expects columns like:
+    mood,n1,d1,n2,d2, ... (any number of nX/dX pairs).
     """
     samples = []
-    
+
     with open(path, "r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
 
         for row in reader:
             mood = row.get("mood")
             if mood is None:
-                continue  # skip bad rows
+                continue
 
             pitches = []
             durs = []
@@ -73,29 +91,28 @@ def load_dataset(path):
                 n_key = f"n{i}"
                 d_key = f"d{i}"
 
-                # Stop if either field is missing from the header
+                # Stop if these keys don't exist in header
                 if n_key not in row or d_key not in row:
                     break
 
                 n_val = row[n_key]
                 d_val = row[d_key]
 
-                # Stop when blank or None values are found (end of row)
+                # Stop on empty or None (end of row content)
                 if n_val is None or d_val is None:
                     break
-                if n_val.strip() == "" or d_val.strip() == "":
+                if str(n_val).strip() == "" or str(d_val).strip() == "":
                     break
 
-                # Convert safely
                 try:
-                    pitch = int(float(n_val))   # works for "60" or "60.0"
+                    pitch = int(float(n_val))   # e.g. "60" or "60.0"
                     dur   = float(d_val)
                 except ValueError:
-                    break  # invalid value, stop reading this row
+                    # Bad value; stop reading this row
+                    break
 
                 pitches.append(pitch)
                 durs.append(dur)
-
                 i += 1
 
             if len(pitches) > 1:
@@ -171,12 +188,28 @@ def generate_melody(mood, length, transition_probs):
     return pitches, durs
 
 
+def choose_instrument_for_mood(mood: str) -> int:
+    """
+    Decide the MIDI program (instrument) for a given mood.
+
+    - rock: heavy/distorted guitar
+    - blues: clean electric guitar
+    - jazz: jazz guitar
+    - others: random "non-rock" tones (piano / gentler guitars etc.)
+    """
+    if mood in GUITAR_PROGRAMS:
+        return GUITAR_PROGRAMS[mood]
+    # For non-rock moods, random but not the heavy rock patch
+    return random.choice(OTHER_INSTRUMENT_CHOICES)
+
+
 def melody_to_midi(pitches, durations, mood, filename):
     """
-    Write a monophonic piano melody with variable durations to a MIDI file.
+    Write a monophonic melody with variable durations to a MIDI file.
 
     durations are in beats (0.25, 0.5, 1.0, 2.0, ...).
     Tempo depends on mood.
+    Instrument depends on mood (guitar variants / piano / etc.).
     """
     mid = MidiFile()
     mid.ticks_per_beat = TICKS_PER_BEAT
@@ -185,7 +218,19 @@ def melody_to_midi(pitches, durations, mood, filename):
 
     bpm = MOOD_TEMPO.get(mood, 100)
     track.append(MetaMessage("set_tempo", tempo=bpm2tempo(bpm), time=0))
-    track.append(Message("program_change", program=0, time=0))  # Piano
+
+    # Instrument selection per mood
+    program = choose_instrument_for_mood(mood)
+    track.append(Message("program_change", program=program, time=0))
+
+    # Optional: set reverb send for some moods (GM CC 91)
+    # Blues: some reverb, Jazz: more, Rock: moderate
+    if mood == "blues":
+        track.append(Message("control_change", control=91, value=80, time=0))
+    elif mood == "jazz":
+        track.append(Message("control_change", control=91, value=100, time=0))
+    elif mood == "rock":
+        track.append(Message("control_change", control=91, value=60, time=0))
 
     velocity = 80
 
@@ -293,7 +338,7 @@ class MusicApp(tk.Tk):
             midi_path = os.path.join(mood_dir, f"generated_{mood}_{timestamp}.mid")
             wav_path = os.path.join(mood_dir, f"generated_{mood}_{timestamp}.wav")
 
-            # 3. Save MIDI with durations and mood tempo
+            # 3. Save MIDI with durations and mood tempo + instrument
             melody_to_midi(pitches, durs, mood, midi_path)
 
             # 4. Render to WAV
@@ -337,6 +382,9 @@ def main():
         raise FileNotFoundError(f"Dataset not found: {DATA_FILE}")
 
     samples = load_dataset(DATA_FILE)
+    if not samples:
+        raise RuntimeError("No valid samples loaded from dataset. Check melodies.csv format.")
+
     transition_probs = build_markov_models(samples)
 
     # 2. Ensure output root exists
