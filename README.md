@@ -134,6 +134,82 @@ SF2_FILE = os.path.join(BASE_DIR, "music_fonts", "FluidR3_GM.sf2")
 python music_app.py
 ```
 
+## Quick Start: Adding Your First TAB
+
+Here's how to quickly add a guitar TAB to the dataset:
+
+### 1. Prepare Your TAB
+
+Copy your guitar tablature in standard text format. Example:
+
+```
+e|------------------0------------0--------0----------------------------------|
+B|--2-----2-----2---2--2---------2--------2------2---------------------------|
+G|--2-----2-----2---2--2------2--2----2---2--2---2---------------------------|
+D|--2-----2-----2---2--2------0--0----0---0--0---0---------------------------|
+A|--------------0------0------0-------0------0---0---------------------------|
+E|----------------------------2-------2------2---2---------------------------|
+```
+
+### 2. Edit the Converter Script
+
+Open `tab_to_dataset.py` and modify the configuration section:
+
+```python
+# ---------------------------------------------------------------------
+# CONFIG (EDIT THESE FOR EACH TAB YOU PROCESS)
+# ---------------------------------------------------------------------
+
+TAB_TEXT = r"""
+e|------------------0------------0--------0----------------------------------|
+B|--2-----2-----2---2--2---------2--------2------2---------------------------|
+G|--2-----2-----2---2--2------2--2----2---2--2---2---------------------------|
+D|--2-----2-----2---2--2------0--0----0---0--0---0---------------------------|
+A|--------------0------0------0-------0------0---0---------------------------|
+E|----------------------------2-------2------2---2---------------------------|
+"""
+
+MOOD = "sad"             # Change this: "rock", "blues", "jazz", "sad", "happy", "bright"
+CHUNK_LEN = 16           # Notes per training example (default: 16)
+NOTE_DURATION = 0.5      # Duration in beats (default: 0.5)
+TUNING_NAME = "standard" # "standard" or "eb" (Eb tuning)
+
+DATASET_FILE = "dataset.csv"
+```
+
+**Configuration Parameters:**
+- `TAB_TEXT` - Paste your complete TAB here (between the triple quotes)
+- `MOOD` - Genre label for this TAB
+- `CHUNK_LEN` - How many notes per training row (16 recommended)
+- `NOTE_DURATION` - Rhythm value assigned to each note (0.5 = eighth note)
+- `TUNING_NAME` - Guitar tuning used in the TAB
+
+### 3. Run the Converter
+
+```bash
+python tab_to_dataset.py
+```
+
+You'll be prompted:
+
+```
+[INFO] dataset.csv already exists.
+Choose: [A]ppend or [O]verwrite?
+```
+
+- Type `A` to add to existing data
+- Type `O` to start fresh (deletes old data)
+
+### 4. Verify the Output
+
+The script will report:
+
+```
+[DONE] Added 12 samples to dataset.csv.
+```
+
+Your TAB is now part of the training dataset!
+
 ## Contributing to the Dataset
 
 The quality of generated melodies depends heavily on the training dataset. Contributions are highly encouraged!
