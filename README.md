@@ -1,174 +1,197 @@
-# 🎵 Mood-Based Melody Generator
+# Mood-Based Melody Generator
 
-A genre-aware melody generation system that uses Markov chains to create music based on mood selection, featuring real-time MIDI synthesis and audio playback.
+A Markov Chain-based melody generator with FluidSynth rendering that creates music based on different moods and genres.
 
-## ✨ Features
+## Overview
 
-- **Markov-based melody generation** - Each mood builds its own transition table from a rhythm-aware dataset
-- **Rhythm variation** - Durations vary between 0.25, 0.5, 1.0, 2.0 beats depending on genre
-- **Guitar tones per genre** - Rock (distortion), Blues (clean), Jazz (jazz guitar), with soft tones for other moods
-- **Mood-specific BPM** - Every genre has its own tempo setting
-- **FluidSynth WAV rendering** - Generated MIDI rendered to WAV via FluidSynth CLI
-- **GUI interface** - Simple Tkinter interface for mood selection, generation, and playback
+This project generates melodies based on musical "moods" (genres) such as **rock**, **blues**, **jazz**, **sad**, **happy**, and **bright**. It uses a Markov Chain model trained on a CSV dataset of melodies and rhythms, with a Tkinter GUI for easy interaction.
 
-## 🚀 Getting Started
+### Key Capabilities
 
-### Prerequisites
+- Select a genre/mood
+- Generate a melody using trained Markov models
+- Convert to MIDI format
+- Render to WAV using FluidSynth
+- Play the result directly
+- Save files organized by genre in `output/<genre>/`
 
-- Python 3.x
-- FluidSynth
-- SoundFont file (FluidR3_GM.sf2)
+## Features
 
-### Installation
+### 1. Markov Melody Generation
 
-1. **Install Python dependencies**
+Learns probabilities of note transitions per mood, supporting both pitch transitions and rhythmic durations. This produces realistic stylistic patterns characteristic of each genre.
+
+### 2. Rhythm-Aware Dataset
+
+The CSV dataset includes pitch and duration information:
+- `nX` = pitch (MIDI number)
+- `dX` = duration (beats)
+
+Example format:
+
+```csv
+mood,n1,d1,n2,d2,n3,d3,n4,d4,...
+rock,60,0.5,62,0.5,64,1.0,67,0.5,...
+```
+
+### 3. FluidSynth Audio Rendering
+
+MIDI files are rendered to WAV using SoundFont technology. The default SoundFont is **FluidR3_GM.sf2**, and you can configure different instruments based on genre (clean guitar, jazz guitar, distorted guitar, piano, etc.).
+
+### 4. Tkinter GUI
+
+User-friendly interface featuring:
+- Mood selector dropdown
+- Generate & render button
+- Playback controls
+- Output file management
+- Loading spinner during rendering
+
+### 5. TAB-to-Dataset Converter
+
+The `tab_to_dataset.py` script converts guitar TABs directly into dataset entries, making it easy to expand training data.
+
+Features:
+- Reads text-based guitar TABs
+- Supports multiple tunings (standard, Eb, drop tunings, etc.)
+- Converts fret positions to MIDI pitches
+- Assigns configurable durations
+- Splits notes into training chunks (default: 16 notes per row)
+- Appends or overwrites `dataset.csv`
+
+Usage:
 
 ```bash
-pip install mido
+python tab_to_dataset.py
 ```
 
-*Note: Tkinter is included with Python on Windows*
+The script will prompt whether to append or overwrite existing data.
 
-2. **Install FluidSynth**
+## Dataset Format
 
-Download FluidSynth for Windows from the [official releases](https://github.com/FluidSynth/fluidsynth/releases)
-
-- Download the Windows x64 zip release (`fluidsynth-2.x.x-win64.zip`)
-- Extract and create the folder structure:
-  ```
-  C:\tools\fluidsynth\
-  ```
-- Move extracted files so that `C:\tools\fluidsynth\bin\fluidsynth.exe` exists
-
-3. **Download SoundFont**
-
-Download `FluidR3_GM.sf2` from:
-https://ftp.osuosl.org/pub/musescore/soundfont/FluidR3_GM/
-
-Place it in your project:
-```
-your_project/music_fonts/FluidR3_GM.sf2
-```
-
-> **Note:** The `music_fonts/` directory is gitignored - you must manually place the `.sf2` file
-
-4. **Create output folder**
-
-Generated WAV and MIDI files will appear in:
-```
-your_project/output/
-```
-
-*This folder is also gitignored*
-
-## 📁 Project Structure
-
-```
-project/
-│
-├── music_app.py            # Main Tkinter application
-├── melodies.csv            # Training dataset (pitch + duration)
-├── generate_dataset.py     # Optional dataset generator
-│
-├── music_fonts/            # (gitignored) Put FluidR3_GM.sf2 here
-│   └── FluidR3_GM.sf2
-│
-├── output/                 # (gitignored) Generated WAV/MIDI files
-│   ├── rock/
-│   ├── jazz/
-│   ├── blues/
-│   └── ...
-│
-└── README.md
-```
-
-## 🎹 Dataset Format
-
-The `melodies.csv` file uses the following format:
+All datasets follow this structure:
 
 ```csv
-mood,n1,d1,n2,d2,n3,d3,...,n16,d16
+mood,n1,d1,n2,d2,...,n16,d16
 ```
 
-**Example:**
-```csv
-sad,60,1.0,62,1.0,64,2.0,62,0.5,60,0.5,59,2.0
+### Format Parameters
+
+| Parameter | Meaning | Example |
+|-----------|---------|---------|
+| `mood` | Genre tag | `rock`, `jazz` |
+| `nX` | MIDI pitch number | `60` (Middle C) |
+| `dX` | Duration in beats | `0.5`, `1.0` |
+| 16 notes | Training chunk size | Configurable |
+
+### TAB Converter Settings
+
+Configure these in `tab_to_dataset.py`:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `MOOD` | Mood label for generated samples | `"rock"` |
+| `TUNING_NAME` | Guitar tuning preset | `"eb"` |
+| `CHUNK_LEN` | Notes per dataset entry | `16` |
+| `NOTE_DURATION` | Duration applied to each pitch | `0.5` beats |
+| `DATASET_FILE` | Master dataset path | `dataset.csv` |
+
+## Installation
+
+### Requirements
+
+- Python 3.9+
+- `mido` library
+- `tkinter` (usually included with Python)
+- FluidSynth installed on your system
+- A valid `.sf2` SoundFont file
+
+### SoundFont Setup
+
+1. Download **FluidR3 GM SoundFont** (`FluidR3_GM.sf2`) from a publicly available General MIDI SoundFont archive
+
+2. Create a directory in the project folder:
+
+```bash
+mkdir music_fonts
 ```
 
-You may include any number of `(nX, dX)` pairs where `n` is the note and `d` is the duration.
+3. Place the SoundFont file:
 
-## 🎮 Usage
+```
+music_fonts/FluidR3_GM.sf2
+```
 
-Run the application:
+4. Verify the config points to it correctly:
+
+```python
+SF2_FILE = os.path.join(BASE_DIR, "music_fonts", "FluidR3_GM.sf2")
+```
+
+## Running the Application
 
 ```bash
 python music_app.py
 ```
 
-**GUI Workflow:**
+## Contributing to the Dataset
 
-1. Select mood (blues / jazz / rock / sad / happy / bright)
-2. Click "Generate & Render"
-3. Wait for buffering animation
-4. Click "Play Last"
-5. WAV file appears in `output/<mood>/generated_<mood>_<timestamp>.wav`
+The quality of generated melodies depends heavily on the training dataset. Contributions are highly encouraged!
 
-## ⚙️ Customization
+### Ways to Contribute
 
-### Change Instrument Patches
+#### 1. Add Guitar Solos or Riffs
 
-Edit `music_app.py`:
+Use `tab_to_dataset.py` to convert:
+- Rock riffs
+- Blues licks
+- Jazz lines
+- Metal or fusion patterns
+- Original pop melodies
 
-```python
-GUITAR_PROGRAMS = {
-    "blues": 27,   # Clean guitar
-    "jazz": 26,    # Jazz guitar
-    "rock": 30,    # Distortion guitar
-}
+#### 2. Add Your Own Compositions
+
+Any style is welcome, as long as it's your original work.
+
+#### 3. Generate CSV Rows Manually
+
+If you have MIDI files or sheet music, extract notes and durations and format them as:
+
+```csv
+mood,n1,d1,n2,d2,...,n16,d16
 ```
 
-### Change Tempos
+#### 4. Share High-Quality Samples
 
-Edit `music_app.py`:
+More data leads to better note transitions and more realistic melodies.
 
-```python
-MOOD_TEMPO = {
-    "sad": 70,
-    "happy": 115,
-    "bright": 120,
-    "blues": 95,
-    "jazz": 110,
-    "rock": 140,
-}
+## Project Structure
+
+```
+.
+├── music_app.py          # Main application
+├── tab_to_dataset.py     # TAB converter script
+├── dataset.csv           # Training data
+├── music_fonts/          # SoundFont directory (not in git)
+└── output/               # Generated audio files (not in git)
 ```
 
-## 🔧 Troubleshooting
+### Excluded from Version Control
 
-**Error: "fluidsynth.exe not found"**
-- Verify that `C:\tools\fluidsynth\bin\fluidsynth.exe` exists
+The following directories are in `.gitignore`:
 
-**Error: "Could not open SoundFont"**
-- Check that `music_fonts/FluidR3_GM.sf2` is present
+- `output/` - User-generated audio files
+- `music_fonts/` - May contain copyright-restricted SoundFonts
 
-**Audio not playing**
-- Try opening the generated WAV file manually with your system audio player
+Users must supply their own `.sf2` file.
 
-## 🛠️ Built With
+## Technical Overview
 
-- **Python** - Core language
-- **Mido** - MIDI file manipulation
-- **FluidSynth** - Audio synthesis
-- **Tkinter** - GUI interface
-- **Markov Chains** - Melody generation algorithm
+This project combines:
+- **Music theory** - Understanding of melodic structure and genre characteristics
+- **Machine learning** - Markov Chain modeling for sequence generation
+- **Audio synthesis** - FluidSynth for high-quality audio rendering
+- **UI/UX** - Tkinter-based graphical interface
+- **Data engineering** - CSV dataset creation and management
 
-## 📝 License
-
-For educational and academic use. Modify freely for your project.
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome!
-
----
-
-*Built with ❤️ for music generation enthusiasts*
+The TAB-to-dataset converter enables users to expand the dataset with their own musical contributions, continuously improving melody quality and stylistic realism.

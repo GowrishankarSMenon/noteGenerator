@@ -17,7 +17,7 @@ from mido import Message, MidiFile, MidiTrack, bpm2tempo, MetaMessage
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # CSV with columns: mood,n1,d1,n2,d2,... (nX=pitch, dX=duration in beats)
-DATA_FILE = os.path.join(BASE_DIR, "melodies.csv")
+DATA_FILE = os.path.join(BASE_DIR, "dataset.csv")
 
 # Path to fluidsynth.exe
 FLUIDSYNTH_EXE = r"C:\tools\fluidsynth\bin\fluidsynth.exe"
@@ -27,7 +27,7 @@ SF2_FILE = os.path.join(BASE_DIR, "music_fonts", "FluidR3_GM.sf2")
 
 OUTPUT_ROOT = os.path.join(BASE_DIR, "output")
 
-# How many notes to generate (can differ from training length)
+# How many notes to generate per melody
 GEN_LENGTH = 32
 
 MOODS = ["sad", "happy", "bright", "blues", "jazz", "rock"]
@@ -35,7 +35,7 @@ MOODS = ["sad", "happy", "bright", "blues", "jazz", "rock"]
 # Ticks per beat for MIDI timing
 TICKS_PER_BEAT = 480
 
-# Per-mood BPM (you can tweak these)
+# Per-mood BPM
 MOOD_TEMPO = {
     "sad":   70,
     "happy": 115,
@@ -45,12 +45,11 @@ MOOD_TEMPO = {
     "rock":  140,
 }
 
-# General MIDI program numbers (0-based)
-# Distinct guitar tones per mood
+# General MIDI program numbers (0-based) for distinct guitars
 GUITAR_PROGRAMS = {
     "blues": 27,  # Electric Guitar (clean)
     "jazz":  26,  # Electric Guitar (jazz)
-    "rock":  30,  # Distortion Guitar (more aggressive than overdrive)
+    "rock":  30,  # Distortion Guitar
 }
 
 # For non-rock moods, we randomly pick from these "non-rock" tones:
@@ -147,8 +146,8 @@ def build_markov_models(samples):
     return transition_probs
 
 
-def sample_next_state(prob_dict):
-    """Sample (pitch, duration) according to probability distribution."""
+def sample_from_distribution(prob_dict):
+    """Sample a state according to probability distribution in prob_dict."""
     r = random.random()
     cum = 0.0
     items = list(prob_dict.items())
@@ -159,9 +158,46 @@ def sample_next_state(prob_dict):
     return items[-1][0]
 
 
-def generate_melody(mood, length, transition_probs):
+def combine_context_probabilities(mood_table, history, history_len, decay):
     """
-    Generate a sequence of (pitches, durations) for a given mood.
+    Combine transition probabilities from the last `history_len`
+    states using exponential decay.
+
+    mood_table: transition_probs[mood] -> state -> {next_state: p}
+    history: list of states, last element is most recent
+    history_len: how many past states to consider (N)
+    decay: alpha in (0,1), e.g. 0.7
+
+    Returns a normalized probability dict: {next_state: combined_prob}
+    """
+    combined = {}
+
+    # Take up to history_len most recent states
+    recent = history[-history_len:]
+    # Iterate from most recent backwards
+    for idx, state in enumerate(reversed(recent)):
+        if state not in mood_table:
+            continue
+        # Exponential decay: w0=1, w1=decay, w2=decay^2, ...
+        weight = decay ** idx if idx > 0 else 1.0
+        for nxt, p in mood_table[state].items():
+            combined[nxt] = combined.get(nxt, 0.0) + weight * p
+
+    # Normalize
+    total = sum(combined.values())
+    if total <= 0:
+        return {}
+
+    for k in list(combined.keys()):
+        combined[k] /= total
+
+    return combined
+
+
+def generate_melody(mood, length, transition_probs, history_len=3, decay=0.7):
+    """
+    Generate a sequence of (pitches, durations) for a given mood using
+    cascading context (decaying weights over last N states).
 
     Returns (pitches_list, durations_list).
     """
@@ -172,17 +208,36 @@ def generate_melody(mood, length, transition_probs):
     if not mood_table:
         raise ValueError(f"Empty transition table for mood '{mood}'")
 
+    # Clamp parameters
+    history_len = max(1, min(history_len, 10))
+    decay = max(0.0, min(decay, 0.999))
+
     # Start from a random state that has outgoing transitions
     current_state = random.choice(list(mood_table.keys()))
     pitches = [current_state[0]]
     durs = [current_state[1]]
 
+    history = [current_state]
+
     for _ in range(length - 1):
-        if current_state not in mood_table or not mood_table[current_state]:
-            current_state = random.choice(list(mood_table.keys()))
-        next_state = sample_next_state(mood_table[current_state])
+        # Combine probabilities from last N states
+        combined_probs = combine_context_probabilities(
+            mood_table, history, history_len, decay
+        )
+
+        if not combined_probs:
+            # Fallback: random transition from current_state or random state
+            if current_state in mood_table and mood_table[current_state]:
+                combined_probs = mood_table[current_state]
+            else:
+                current_state = random.choice(list(mood_table.keys()))
+                combined_probs = mood_table[current_state]
+
+        next_state = sample_from_distribution(combined_probs)
+
         pitches.append(next_state[0])
         durs.append(next_state[1])
+        history.append(next_state)
         current_state = next_state
 
     return pitches, durs
@@ -199,7 +254,6 @@ def choose_instrument_for_mood(mood: str) -> int:
     """
     if mood in GUITAR_PROGRAMS:
         return GUITAR_PROGRAMS[mood]
-    # For non-rock moods, random but not the heavy rock patch
     return random.choice(OTHER_INSTRUMENT_CHOICES)
 
 
@@ -224,7 +278,6 @@ def melody_to_midi(pitches, durations, mood, filename):
     track.append(Message("program_change", program=program, time=0))
 
     # Optional: set reverb send for some moods (GM CC 91)
-    # Blues: some reverb, Jazz: more, Rock: moderate
     if mood == "blues":
         track.append(Message("control_change", control=91, value=80, time=0))
     elif mood == "jazz":
@@ -274,7 +327,7 @@ class MusicApp(tk.Tk):
     def __init__(self, transition_probs):
         super().__init__()
         self.title("Mood-based Melody Generator")
-        self.geometry("450x260")
+        self.geometry("500x320")
 
         self.transition_probs = transition_probs
         self.last_wav = None
@@ -283,52 +336,118 @@ class MusicApp(tk.Tk):
         self.selected_mood = tk.StringVar(value=MOODS[0])
         self.status_text = tk.StringVar(value="Ready.")
 
+        # Cascading Markov parameters
+        self.history_len_var = tk.IntVar(value=3)     # N
+        self.decay_var = tk.DoubleVar(value=0.7)      # alpha
+
         self._build_ui()
 
     def _build_ui(self):
-        padding = {"padx": 10, "pady": 8}
+        padding = {"padx": 10, "pady": 6}
 
         # Mood selector
-        ttk.Label(self, text="Select mood / genre:").grid(row=0, column=0, sticky="w", **padding)
-
-        mood_combo = ttk.Combobox(self, textvariable=self.selected_mood, values=MOODS, state="readonly")
+        ttk.Label(self, text="Select mood / genre:").grid(
+            row=0, column=0, sticky="w", **padding
+        )
+        mood_combo = ttk.Combobox(
+            self,
+            textvariable=self.selected_mood,
+            values=MOODS,
+            state="readonly"
+        )
         mood_combo.grid(row=0, column=1, sticky="ew", **padding)
 
+        # History length (N)
+        ttk.Label(self, text="History length (N):").grid(
+            row=1, column=0, sticky="w", **padding
+        )
+        history_spin = ttk.Spinbox(
+            self,
+            from_=1,
+            to=5,
+            textvariable=self.history_len_var,
+            width=5
+        )
+        history_spin.grid(row=1, column=1, sticky="w", **padding)
+
+        # Decay (alpha)
+        ttk.Label(self, text="Decay factor (α):").grid(
+            row=2, column=0, sticky="w", **padding
+        )
+
+        decay_frame = ttk.Frame(self)
+        decay_frame.grid(row=2, column=1, sticky="ew", **padding)
+
+        decay_scale = ttk.Scale(
+            decay_frame,
+            from_=0.5,
+            to=0.95,
+            orient="horizontal",
+            variable=self.decay_var,
+            command=lambda v: self._update_decay_label()
+        )
+        decay_scale.pack(side="left", fill="x", expand=True)
+
+        self.decay_label = ttk.Label(decay_frame, text=f"{self.decay_var.get():.2f}")
+        self.decay_label.pack(side="right", padx=4)
+
         # Generate button
-        self.btn_generate = ttk.Button(self, text="Generate & Render", command=self.on_generate_clicked)
-        self.btn_generate.grid(row=1, column=0, columnspan=2, sticky="ew", **padding)
+        self.btn_generate = ttk.Button(
+            self, text="Generate & Render", command=self.on_generate_clicked
+        )
+        self.btn_generate.grid(row=3, column=0, columnspan=2, sticky="ew", **padding)
 
         # Play button
-        self.btn_play = ttk.Button(self, text="Play Last", command=self.on_play_clicked, state="disabled")
-        self.btn_play.grid(row=2, column=0, columnspan=2, sticky="ew", **padding)
+        self.btn_play = ttk.Button(
+            self, text="Play Last", command=self.on_play_clicked, state="disabled"
+        )
+        self.btn_play.grid(row=4, column=0, columnspan=2, sticky="ew", **padding)
 
         # Progress bar (buffering indicator)
         self.progress = ttk.Progressbar(self, mode="indeterminate")
-        self.progress.grid(row=3, column=0, columnspan=2, sticky="ew", **padding)
+        self.progress.grid(row=5, column=0, columnspan=2, sticky="ew", **padding)
 
         # Status label
-        ttk.Label(self, textvariable=self.status_text).grid(row=4, column=0, columnspan=2, sticky="w", **padding)
+        ttk.Label(self, textvariable=self.status_text).grid(
+            row=6, column=0, columnspan=2, sticky="w", **padding
+        )
 
         # Make columns resize
         self.columnconfigure(1, weight=1)
+
+    def _update_decay_label(self):
+        self.decay_label.config(text=f"{self.decay_var.get():.2f}")
 
     # --------- UI event handlers & background work ---------
 
     def on_generate_clicked(self):
         mood = self.selected_mood.get()
-        self.status_text.set(f"Generating {mood} melody...")
+        history_len = self.history_len_var.get()
+        decay = self.decay_var.get()
+
+        self.status_text.set(
+            f"Generating {mood} melody (N={history_len}, α={decay:.2f})..."
+        )
         self.btn_generate.config(state="disabled")
         self.btn_play.config(state="disabled")
         self.progress.start(10)  # start buffering animation
 
         # Run heavy work in a separate thread
-        thread = threading.Thread(target=self._generate_and_render, args=(mood,), daemon=True)
+        thread = threading.Thread(
+            target=self._generate_and_render,
+            args=(mood, history_len, decay),
+            daemon=True
+        )
         thread.start()
 
-    def _generate_and_render(self, mood):
+    def _generate_and_render(self, mood, history_len, decay):
         try:
-            # 1. Generate melody (pitches + durations)
-            pitches, durs = generate_melody(mood, GEN_LENGTH, self.transition_probs)
+            # 1. Generate melody (pitches + durations) with cascading context
+            pitches, durs = generate_melody(
+                mood, GEN_LENGTH, self.transition_probs,
+                history_len=history_len,
+                decay=decay
+            )
 
             # 2. Prepare folder and filenames
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -338,7 +457,7 @@ class MusicApp(tk.Tk):
             midi_path = os.path.join(mood_dir, f"generated_{mood}_{timestamp}.mid")
             wav_path = os.path.join(mood_dir, f"generated_{mood}_{timestamp}.wav")
 
-            # 3. Save MIDI with durations and mood tempo + instrument
+            # 3. Save MIDI with durations, tempo, and instrument
             melody_to_midi(pitches, durs, mood, midi_path)
 
             # 4. Render to WAV
