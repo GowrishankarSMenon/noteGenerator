@@ -1,29 +1,80 @@
 """
 Class definition for SongContext - the musical "State" of the composition.
+These dataclasses represent the "Contract" that all generators must obey.
 """
 
+from dataclasses import dataclass, field
+from typing import List, Optional
 
-class SongContext:
+
+@dataclass
+class BarContext:
     """
-    Represents the complete musical context for song generation.
+    Represents a single measure/bar of music.
     
     Attributes:
-        key (str): The musical key (e.g., 'C', 'Am')
-        scale (list): List of scale degrees
-        bpm (int): Tempo in beats per minute
-        chord_progression (list): List of chords for the song
-        structure (list): Song structure sections (e.g., ['intro', 'verse', 'chorus'])
-        time_signature (tuple): Time signature (numerator, denominator)
+        bar_index: The position of this bar in the song (0-indexed)
+        chord_name: The chord for this bar (e.g., "Am", "C", "G7")
+        chord_type: The type of chord (e.g., "min", "maj", "dom7")
+        root_note: The MIDI note number of the chord root
+        root_name: The note name of the root (e.g., "A", "C")
+        scale_type: The scale type for this bar (e.g., "minor", "major")
+        scale_notes: List of valid MIDI notes in the scale (for melody filtering)
     """
-    
-    def __init__(self, key='C', scale=None, bpm=120, chord_progression=None,
-                 structure=None, time_signature=(4, 4)):
-        self.key = key
-        self.scale = scale or [0, 2, 4, 5, 7, 9, 11]  # Major scale default
-        self.bpm = bpm
-        self.chord_progression = chord_progression or []
-        self.structure = structure or ['intro', 'verse', 'chorus', 'verse', 'chorus', 'outro']
-        self.time_signature = time_signature
+    bar_index: int
+    chord_name: str
+    chord_type: str = "maj"
+    root_note: int = 60
+    root_name: str = "C"
+    scale_type: str = "major"
+    scale_notes: List[int] = field(default_factory=list)
     
     def __repr__(self):
-        return f"SongContext(key={self.key}, bpm={self.bpm}, chords={len(self.chord_progression)})"
+        return f"Bar({self.bar_index}: {self.chord_name})"
+
+
+@dataclass
+class SongContext:
+    """
+    Represents the global state of the entire song.
+    This is the central data structure passed between all generators.
+    
+    Attributes:
+        mood: The selected mood (e.g., "happy", "sad", "rock")
+        bpm: Tempo in beats per minute
+        key: The musical key (e.g., "C", "Am")
+        key_root_midi: MIDI note number of the key root
+        scale_type: Primary scale type for the song
+        time_signature: Tuple of (beats_per_bar, beat_unit)
+        total_bars: Total number of bars in the song
+        timeline: List of BarContext objects for each bar
+        instruments: Dictionary of instrument assignments
+        drum_style: The drum pattern style to use
+        harmony_style: How harmony should be played
+    """
+    mood: str
+    bpm: int
+    key: str
+    key_root_midi: int = 60
+    scale_type: str = "major"
+    time_signature: tuple = (4, 4)
+    total_bars: int = 16
+    timeline: List[BarContext] = field(default_factory=list)
+    instruments: dict = field(default_factory=dict)
+    drum_style: str = "pop"
+    harmony_style: str = "rhythmic"
+    
+    def get_bar(self, index: int) -> Optional[BarContext]:
+        """Get a specific bar by index."""
+        if 0 <= index < len(self.timeline):
+            return self.timeline[index]
+        return None
+    
+    def get_current_chord_at_tick(self, tick: int, ticks_per_bar: int) -> Optional[BarContext]:
+        """Get the bar context at a specific tick position."""
+        bar_index = tick // ticks_per_bar
+        return self.get_bar(bar_index)
+    
+    def __repr__(self):
+        return (f"SongContext(mood={self.mood}, key={self.key}, "
+                f"bpm={self.bpm}, bars={self.total_bars})")
