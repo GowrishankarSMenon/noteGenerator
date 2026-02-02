@@ -10,9 +10,17 @@ import os
 # =============================================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
-DATASET_PATH = os.path.join(ASSETS_DIR, 'dataset.csv')
+DATASETS_DIR = os.path.join(ASSETS_DIR, 'datasets')
+DATASET_PATH = os.path.join(ASSETS_DIR, 'dataset.csv')  # Legacy fallback
 SOUNDFONT_PATH = os.path.join(ASSETS_DIR, 'fonts', 'FluidR3_GM.sf2')
 OUTPUT_DIR = os.path.join(BASE_DIR, 'output')
+
+def get_dataset_path(mood: str) -> str:
+    """Get the dataset path for a specific mood."""
+    mood_dataset = os.path.join(DATASETS_DIR, f'{mood}.csv')
+    if os.path.exists(mood_dataset):
+        return mood_dataset
+    return DATASET_PATH  # Fallback to generic dataset
 
 # Ensure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)

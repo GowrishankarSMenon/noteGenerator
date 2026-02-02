@@ -11,26 +11,34 @@ from typing import List, Dict, Set, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from models.context import SongContext
 from models.markov_chain import MarkovChain
-from config.settings import TICKS_PER_BEAT, DEFAULT_VELOCITY, DATASET_PATH
+from config.settings import TICKS_PER_BEAT, DEFAULT_VELOCITY, get_dataset_path
 from utils.music_theory import get_scale_notes
 
 
 class LeadGenerator:
     """
     Generates lead melodies using Markov chain models.
+    Loads mood-specific training data for each mood.
     """
     
     def __init__(self):
         self.lead_octave = 5  # Lead plays in upper register
         self.markov = MarkovChain(order=2)
-        self._load_markov_model()
+        self._current_mood = None  # Track loaded mood
     
-    def _load_markov_model(self):
-        """Load and train the Markov model from dataset."""
-        if os.path.exists(DATASET_PATH):
-            self.markov.train_from_csv(DATASET_PATH)
+    def _load_markov_model(self, mood: str):
+        """Load and train the Markov model from mood-specific dataset."""
+        if self._current_mood == mood:
+            return  # Already loaded
+        
+        dataset_path = get_dataset_path(mood)
+        if os.path.exists(dataset_path):
+            self.markov = MarkovChain(order=2)  # Reset chain
+            self.markov.train_from_csv(dataset_path)
+            self._current_mood = mood
+            print(f"Loaded {mood} dataset from {dataset_path}")
         else:
-            print(f"Dataset not found at {DATASET_PATH}, using default training data")
+            print(f"Dataset not found at {dataset_path}, using default training data")
             self.markov._create_default_training_data()
     
     def generate(self, ctx: SongContext, harmony_track: List[Dict]) -> List[Dict]:
@@ -44,6 +52,8 @@ class LeadGenerator:
         Returns:
             List of MIDI events for lead melody
         """
+        # Load mood-specific Markov model
+        self._load_markov_model(ctx.mood)
         events = []
         ticks_per_bar = TICKS_PER_BEAT * ctx.time_signature[0]
         
