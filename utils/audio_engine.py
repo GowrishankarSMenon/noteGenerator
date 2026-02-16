@@ -12,7 +12,20 @@ import wave
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.settings import SOUNDFONT_PATH, OUTPUT_DIR, SAMPLE_RATE, DRUM_CHANNEL
+from config.settings import SOUNDFONT_PATH, FLUIDSYNTH_DIR, OUTPUT_DIR, SAMPLE_RATE, DRUM_CHANNEL
+
+# Register local FluidSynth DLL directory BEFORE importing pyfluidsynth.
+# pyfluidsynth's module-level code calls os.add_dll_directory('C:\\tools\\fluidsynth\\bin')
+# which crashes if that path doesn't exist. We pre-create it as an empty dir to
+# prevent the FileNotFoundError, then register our real DLL path.
+if platform.system() == 'Windows' and hasattr(os, 'add_dll_directory'):
+    # Ensure the hardcoded pyfluidsynth path exists (even if empty) to avoid crash
+    _hardcoded = r'C:\tools\fluidsynth\bin'
+    os.makedirs(_hardcoded, exist_ok=True)
+    # Register our bundled FluidSynth binaries
+    if os.path.isdir(FLUIDSYNTH_DIR):
+        os.add_dll_directory(FLUIDSYNTH_DIR)
+        os.environ['PATH'] = FLUIDSYNTH_DIR + ';' + os.environ.get('PATH', '')
 
 
 class AudioEngine:

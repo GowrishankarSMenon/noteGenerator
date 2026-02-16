@@ -5,12 +5,20 @@ Bootstraps the application and checks for required assets.
 
 import os
 import sys
+import platform
 
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config.settings import DATASET_PATH, SOUNDFONT_PATH, OUTPUT_DIR
+from config.settings import DATASET_PATH, SOUNDFONT_PATH, FLUIDSYNTH_DIR, OUTPUT_DIR
+
+# Register local FluidSynth DLL directory before any fluidsynth import
+if platform.system() == 'Windows' and hasattr(os, 'add_dll_directory'):
+    os.makedirs(r'C:\tools\fluidsynth\bin', exist_ok=True)
+    if os.path.isdir(FLUIDSYNTH_DIR):
+        os.add_dll_directory(FLUIDSYNTH_DIR)
+        os.environ['PATH'] = FLUIDSYNTH_DIR + ';' + os.environ.get('PATH', '')
 
 
 def check_assets():

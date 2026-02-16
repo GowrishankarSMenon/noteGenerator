@@ -43,7 +43,9 @@ class Orchestrator:
         note_properties: Optional[dict] = None,
         master_volume: int = 100,
         style_settings: Optional[dict] = None,
-        effects_config: Optional[dict] = None
+        effects_config: Optional[dict] = None,
+        section_durations: Optional[dict] = None,
+        section_order: Optional[list] = None,
     ) -> Tuple[str, Optional[str], SongContext]:
         """
         Execute the full generation pipeline.
@@ -67,6 +69,8 @@ class Orchestrator:
             master_volume: Master volume level (0-127)
             style_settings: Dict with per-track style config
             effects_config: Dict with per-section effects levels
+            section_durations: Dict of section_name → seconds (optional)
+            section_order: List of section names in playback order (optional)
 
         Returns:
             Tuple of (midi_path, wav_path, song_context)
@@ -108,7 +112,9 @@ class Orchestrator:
             mood=mood,
             length_in_bars=length_in_bars,
             bpm=bpm,
-            key=key
+            key=key,
+            section_durations=section_durations,
+            section_order=section_order,
         )
         
         # Step 2: Generate drums (foundation)

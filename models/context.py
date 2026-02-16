@@ -20,6 +20,10 @@ class BarContext:
         root_name: The note name of the root (e.g., "A", "C")
         scale_type: The scale type for this bar (e.g., "minor", "major")
         scale_notes: List of valid MIDI notes in the scale (for melody filtering)
+        section: Name of the song section (intro, verse, chorus, bridge, outro)
+        section_bar: Position within the current section (0-indexed)
+        energy: Energy level for this bar (0.0 – 1.0), drives dynamics
+        is_transition: True when the bar bridges two different sections
     """
     bar_index: int
     chord_name: str
@@ -28,9 +32,16 @@ class BarContext:
     root_name: str = "C"
     scale_type: str = "major"
     scale_notes: List[int] = field(default_factory=list)
+    section: str = "verse"
+    section_bar: int = 0
+    energy: float = 0.5
+    is_transition: bool = False
+    prev_chord: str = ""          # chord name of the previous bar (for transitions)
+    prev_root: int = 0             # root MIDI note of the previous bar
+    prev_energy: float = 0.5       # energy of the previous bar
     
     def __repr__(self):
-        return f"Bar({self.bar_index}: {self.chord_name})"
+        return f"Bar({self.bar_index}: {self.chord_name} [{self.section}])"
 
 
 @dataclass
@@ -63,6 +74,8 @@ class SongContext:
     instruments: dict = field(default_factory=dict)
     drum_style: str = "pop"
     harmony_style: str = "rhythmic"
+    section_map: List[dict] = field(default_factory=list)
+    # section_map: [{"name": "intro", "start": 0, "length": 4, "energy": 0.3}, ...]
     
     def get_bar(self, index: int) -> Optional[BarContext]:
         """Get a specific bar by index."""

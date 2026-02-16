@@ -50,11 +50,19 @@ class MidiRenderer:
         
         Args:
             name: Track name
-            events: List of note events. Each event is a dict with:
-                    - 'note': MIDI note number
-                    - 'start': Start time in ticks
-                    - 'duration': Duration in ticks
-                    - 'velocity': Note velocity (optional, default 80)
+            events: List of events.  Supported event types:
+                    Note event (default):
+                      - 'note': MIDI note number
+                      - 'start': Start time in ticks
+                      - 'duration': Duration in ticks
+                      - 'velocity': Note velocity (optional, default 80)
+                    Pitch-bend event (type='pitchbend'):
+                      - 'value': Pitch-bend value (-8192 .. +8191)
+                      - 'time':  Absolute tick position
+                    Control-change event (type='control_change'):
+                      - 'control': CC number
+                      - 'value':   CC value (0-127)
+                      - 'time':    Absolute tick position
             channel: MIDI channel (0-15)
             program: MIDI program number (instrument)
             
@@ -72,51 +80,101 @@ class MidiRenderer:
         track.append(Message('control_change', channel=channel, control=7, value=100, time=0))
         track.append(Message('control_change', channel=channel, control=10, value=64, time=0))
         
+        # Set pitch-bend range to +/- 2 semitones via RPN 0 (GM default)
+        # RPN MSB
+        track.append(Message('control_change', channel=channel, control=101, value=0, time=0))
+        # RPN LSB
+        track.append(Message('control_change', channel=channel, control=100, value=0, time=0))
+        # Data Entry MSB = 2 semitones
+        track.append(Message('control_change', channel=channel, control=6, value=2, time=0))
+        # Data Entry LSB = 0
+        track.append(Message('control_change', channel=channel, control=38, value=0, time=0))
+        
         # Convert events to MIDI messages
         # We need to sort by time and convert to delta times
         midi_events = []
         
         for event in events:
-            note = event['note']
-            start = event['start']
-            duration = event['duration']
-            velocity = event.get('velocity', 80)
-            
-            # Note on
-            midi_events.append({
-                'type': 'note_on',
-                'time': start,
-                'note': note,
-                'velocity': velocity,
-                'channel': channel
-            })
-            
-            # Note off
-            midi_events.append({
-                'type': 'note_off',
-                'time': start + duration,
-                'note': note,
-                'velocity': 0,
-                'channel': channel
-            })
+            evt_type = event.get('type', 'note')
+
+            if evt_type == 'pitchbend':
+                # Pitch-bend message
+                midi_events.append({
+                    'msg_type': 'pitchwheel',
+                    'time': event['time'],
+                    'pitch': max(-8192, min(8191, event['value'])),
+                    'channel': channel,
+                    '_sort_order': 0,  # PB before notes at same tick
+                })
+
+            elif evt_type == 'control_change':
+                # Control-change message (CC1 modulation, CC11 expression, etc.)
+                midi_events.append({
+                    'msg_type': 'control_change',
+                    'time': event['time'],
+                    'control': event['control'],
+                    'value': max(0, min(127, event['value'])),
+                    'channel': channel,
+                    '_sort_order': 0,
+                })
+
+            else:
+                # Standard note event
+                note = event['note']
+                start = event['start']
+                duration = event['duration']
+                velocity = event.get('velocity', 80)
+
+                midi_events.append({
+                    'msg_type': 'note_on',
+                    'time': start,
+                    'note': note,
+                    'velocity': velocity,
+                    'channel': channel,
+                    '_sort_order': 1,  # Notes after CC/PB at same tick
+                })
+                midi_events.append({
+                    'msg_type': 'note_off',
+                    'time': start + duration,
+                    'note': note,
+                    'velocity': 0,
+                    'channel': channel,
+                    '_sort_order': 2,
+                })
         
-        # Sort by absolute time
-        midi_events.sort(key=lambda x: (x['time'], x['type'] == 'note_on'))
+        # Sort by absolute time, then by sort order (CC/PB before note_on before note_off)
+        midi_events.sort(key=lambda x: (x['time'], x['_sort_order']))
         
-        # Convert to delta times
+        # Convert to delta times and build MIDI messages
         current_time = 0
         for event in midi_events:
-            delta = event['time'] - current_time
-            if delta < 0:
-                delta = 0
-            
-            track.append(Message(
-                event['type'],
-                channel=event['channel'],
-                note=event['note'],
-                velocity=event['velocity'],
-                time=delta
-            ))
+            delta = max(0, event['time'] - current_time)
+            msg_type = event['msg_type']
+
+            if msg_type == 'pitchwheel':
+                track.append(Message(
+                    'pitchwheel',
+                    channel=event['channel'],
+                    pitch=event['pitch'],
+                    time=delta,
+                ))
+            elif msg_type == 'control_change':
+                track.append(Message(
+                    'control_change',
+                    channel=event['channel'],
+                    control=event['control'],
+                    value=event['value'],
+                    time=delta,
+                ))
+            else:
+                track.append(Message(
+                    msg_type,
+                    channel=event['channel'],
+                    note=event['note'],
+                    velocity=event['velocity'],
+                    time=delta,
+                ))
+
             current_time = event['time']
         
         track.append(MetaMessage('end_of_track', time=0))

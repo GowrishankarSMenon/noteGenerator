@@ -13,6 +13,7 @@ ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
 DATASETS_DIR = os.path.join(ASSETS_DIR, 'datasets')
 DATASET_PATH = os.path.join(ASSETS_DIR, 'dataset.csv')  # Legacy fallback
 SOUNDFONT_PATH = os.path.join(ASSETS_DIR, 'fonts', 'FluidR3_GM.sf2')
+FLUIDSYNTH_DIR = os.path.join(ASSETS_DIR, 'fluidsynth')  # Local FluidSynth binaries
 OUTPUT_DIR = os.path.join(BASE_DIR, 'output')
 
 def get_dataset_path(mood: str) -> str:

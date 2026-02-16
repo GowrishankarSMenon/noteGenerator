@@ -166,24 +166,11 @@ class MainWindow:
                      values=moods, state="readonly", width=20
                      ).grid(row=0, column=1, sticky="w", padx=5, pady=8)
 
-        # Duration
-        ttk.Label(controls_frame, text="Duration (bars):", font=("Helvetica", 11)).grid(
-            row=1, column=0, sticky="w", padx=5, pady=8)
-        dur_frame = ttk.Frame(controls_frame)
-        dur_frame.grid(row=1, column=1, sticky="w", padx=5, pady=8)
-        self.duration_var = tk.IntVar(value=16)
-        ttk.Scale(dur_frame, from_=8, to=64, variable=self.duration_var,
-                  orient="horizontal", length=200,
-                  command=lambda v: self.duration_label.config(text=f"{int(float(v))} bars")
-                  ).pack(side="left")
-        self.duration_label = ttk.Label(dur_frame, text="16 bars", width=10)
-        self.duration_label.pack(side="left", padx=10)
-
         # BPM
         ttk.Label(controls_frame, text="BPM (optional):", font=("Helvetica", 11)).grid(
-            row=2, column=0, sticky="w", padx=5, pady=8)
+            row=1, column=0, sticky="w", padx=5, pady=8)
         bpm_frame = ttk.Frame(controls_frame)
-        bpm_frame.grid(row=2, column=1, sticky="w", padx=5, pady=8)
+        bpm_frame.grid(row=1, column=1, sticky="w", padx=5, pady=8)
         self.bpm_var = tk.StringVar(value="")
         ttk.Entry(bpm_frame, textvariable=self.bpm_var, width=10).pack(side="left")
         ttk.Label(bpm_frame, text="(leave empty for auto)",
@@ -191,9 +178,9 @@ class MainWindow:
 
         # Master Volume
         ttk.Label(controls_frame, text="Master Volume:", font=("Helvetica", 11)).grid(
-            row=3, column=0, sticky="w", padx=5, pady=8)
+            row=2, column=0, sticky="w", padx=5, pady=8)
         vol_frame = ttk.Frame(controls_frame)
-        vol_frame.grid(row=3, column=1, sticky="w", padx=5, pady=8)
+        vol_frame.grid(row=2, column=1, sticky="w", padx=5, pady=8)
         self.master_volume_var = tk.IntVar(value=100)
         ttk.Scale(vol_frame, from_=0, to=127, variable=self.master_volume_var,
                   orient="horizontal", length=200,
@@ -202,17 +189,51 @@ class MainWindow:
         self.volume_label = ttk.Label(vol_frame, text="100", width=5)
         self.volume_label.pack(side="left", padx=10)
 
+        # ── Section Durations (in execution order) ──
+        dur_frame = ttk.LabelFrame(self.generate_tab, text="Section Durations (seconds)  —  execution order ↓", padding=12)
+        dur_frame.pack(fill="x", pady=6)
+        dur_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(dur_frame,
+                  text="Set each section's length in seconds (0 = skip). Total song length is the sum.",
+                  font=("Helvetica", 9), foreground="gray"
+                  ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        self.section_order = ['intro', 'verse', 'chorus', 'bridge', 'outro']
+        default_secs = {'intro': 8, 'verse': 12, 'chorus': 12, 'bridge': 8, 'outro': 8}
+        self.section_dur_vars = {}   # name → tk.DoubleVar
+
+        for idx, sec_name in enumerate(self.section_order, start=1):
+            lbl_text = sec_name.replace('_', ' ').title()
+            ttk.Label(dur_frame, text=f"{idx}. {lbl_text}:",
+                      font=("Helvetica", 10)).grid(row=idx, column=0, sticky="w", padx=5, pady=4)
+            var = tk.DoubleVar(value=default_secs.get(sec_name, 0))
+            self.section_dur_vars[sec_name] = var
+            spin = ttk.Spinbox(dur_frame, from_=0, to=120, increment=1, textvariable=var,
+                               width=6, command=self._update_total_duration_label)
+            spin.grid(row=idx, column=1, sticky="w", padx=5, pady=4)
+            spin.bind("<KeyRelease>", lambda e: self._update_total_duration_label())
+            ttk.Label(dur_frame, text="sec", font=("Helvetica", 9),
+                      foreground="gray").grid(row=idx, column=2, sticky="w")
+
+        self.total_dur_label = ttk.Label(dur_frame, text="Total ≈ 48 sec", font=("Helvetica", 10, "bold"))
+        self.total_dur_label.grid(row=len(self.section_order) + 1, column=0, columnspan=3,
+                                  sticky="w", padx=5, pady=(8, 0))
+
+        # Keep a hidden duration_var for backward compat (bar fallback)
+        self.duration_var = tk.IntVar(value=16)
+
         # Render WAV
         self.render_audio_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(controls_frame, text="Render to WAV (requires FluidSynth)",
                         variable=self.render_audio_var
-                        ).grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=8)
+                        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=8)
 
         # Auto-play after generation
         self.auto_play_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(controls_frame, text="Auto-play after generation",
                         variable=self.auto_play_var
-                        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+                        ).grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=2)
 
         # Buttons
         btn_frame = ttk.Frame(self.generate_tab)
@@ -612,7 +633,21 @@ class MainWindow:
         tw.insert("end", f"  Mood:           {ctx.mood.upper()}\n  Key:            {ctx.key}\n")
         tw.insert("end", f"  Scale:          {ctx.scale_type}\n  BPM:            {ctx.bpm}\n")
         tw.insert("end", f"  Time Signature: {ctx.time_signature[0]}/{ctx.time_signature[1]}\n  Total Bars:     {ctx.total_bars}\n")
+        secs_per_bar = (ctx.time_signature[0] * 60.0) / ctx.bpm
+        total_secs = ctx.total_bars * secs_per_bar
+        tw.insert("end", f"  Duration:       ≈{int(total_secs)} sec\n")
         tw.insert("end", f"  Drum Style:     {ctx.drum_style}\n  Harmony Style:  {ctx.harmony_style}\n")
+
+        # Section layout (execution order)
+        if ctx.section_map:
+            tw.insert("end", f"\n  SECTION LAYOUT (execution order)\n{'─'*39}\n")
+            for sec in ctx.section_map:
+                sec_secs = sec['length'] * secs_per_bar
+                tw.insert("end",
+                    f"  {sec['name'].replace('_',' ').title():12s}  "
+                    f"{sec['length']:2d} bars  ≈{sec_secs:5.1f}s  "
+                    f"energy={sec['energy']:.2f}\n")
+
         tw.insert("end", f"\n  INSTRUMENTS\n{'─'*39}\n")
         for instr, prog in ctx.instruments.items():
             tw.insert("end", f"  {instr:12s}  →  Program {prog}\n")
@@ -1072,6 +1107,18 @@ class MainWindow:
     # =====================================================================
     # GENERATION LOGIC
     # =====================================================================
+    def _update_total_duration_label(self):
+        """Refresh the 'Total ≈ X sec' label from section spinboxes."""
+        try:
+            total = sum(v.get() for v in self.section_dur_vars.values())
+            self.total_dur_label.config(text=f"Total ≈ {int(total)} sec")
+        except Exception:
+            pass
+
+    def _collect_section_durations(self) -> dict:
+        """Return {section_name: seconds} from the UI spinboxes."""
+        return {name: var.get() for name, var in self.section_dur_vars.items()}
+
     def on_play_wav_click(self):
         """Play the last generated WAV file."""
         if self.last_wav_path and os.path.exists(self.last_wav_path):
@@ -1100,13 +1147,17 @@ class MainWindow:
         bpm_str = self.bpm_var.get().strip()
         bpm = int(bpm_str) if bpm_str.isdigit() else None
         render_audio = self.render_audio_var.get()
+        section_durations = self._collect_section_durations()
+        section_order = list(self.section_order)
 
         thread = threading.Thread(
             target=self._generate_thread,
-            args=(mood, duration, bpm, render_audio), daemon=True)
+            args=(mood, duration, bpm, render_audio, section_durations, section_order),
+            daemon=True)
         thread.start()
 
-    def _generate_thread(self, mood, duration, bpm, render_audio):
+    def _generate_thread(self, mood, duration, bpm, render_audio,
+                         section_durations=None, section_order=None):
         try:
             style_settings = self.get_style_settings()
             effects_cfg = self._collect_effects_config()
@@ -1119,7 +1170,9 @@ class MainWindow:
                 note_properties=self.note_properties,
                 master_volume=self.master_volume_var.get(),
                 style_settings=style_settings,
-                effects_config=effects_cfg
+                effects_config=effects_cfg,
+                section_durations=section_durations,
+                section_order=section_order,
             )
 
             tracks_info = {
@@ -1144,7 +1197,12 @@ class MainWindow:
         self.last_wav_path = wav_path
         self.last_context = ctx
 
-        self.status_var.set(f"✅ Generated {ctx.mood} song in {ctx.key} at {ctx.bpm} BPM!")
+        secs_per_bar = (ctx.time_signature[0] * 60.0) / ctx.bpm
+        total_secs = ctx.total_bars * secs_per_bar
+        self.status_var.set(
+            f"✅ Generated {ctx.mood} song in {ctx.key} at {ctx.bpm} BPM  "
+            f"({ctx.total_bars} bars ≈ {int(total_secs)}s)"
+        )
         self.midi_path_var.set(os.path.basename(midi_path) if midi_path else "N/A")
         self.wav_path_var.set(os.path.basename(wav_path) if wav_path else "N/A (FluidSynth not available)")
 

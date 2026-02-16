@@ -4,6 +4,11 @@ The "Singer" or "Soloist" - the only part using Markov Chains.
 
 Incorporates sub-styles inspired by legendary guitarists and iconic bands
 from the 50s-90s for rich, varied lead generation.
+
+Technique-aware:  The Markov chain now outputs (pitch, duration, technique)
+triples.  Technique-annotated arpeggio patterns are injected at phrase
+boundaries.  The GuitarEffectsProcessor reads these hints and applies
+effects deterministically, eliminating chaotic randomness.
 """
 
 import sys
@@ -17,7 +22,9 @@ from models.markov_chain import MarkovChain
 from config.settings import TICKS_PER_BEAT, DEFAULT_VELOCITY, get_dataset_path
 from config.lead_styles import LEAD_STYLES, get_random_substyle
 from config.riff_patterns import get_riff_for_style, transpose_riff
+from config.arpeggio_patterns import get_arpeggio_for_style, transpose_arpeggio
 from utils.music_theory import get_scale_notes
+from core.generators.guitar_effects import GuitarEffectsProcessor
 
 
 class LeadGenerator:
@@ -35,6 +42,7 @@ class LeadGenerator:
         self._current_style = None  # Current sub-style being used
         self._forced_style = None  # Set via set_style() for manual selection
         self._style_mode = 'auto'  # 'auto', 'random', or 'selection'
+        self._guitar_fx = GuitarEffectsProcessor()
     
     def set_style(self, mode: str = 'auto', style_name: str = None):
         """
@@ -99,20 +107,29 @@ class LeadGenerator:
             return self._current_style.get('instrument', 'clean_guitar')
         return 'clean_guitar'
     
+    # ------------------------------------------------------------------
+    # Section-aware parameter overrides
+    # ------------------------------------------------------------------
+    _SECTION_PARAMS = {
+        'intro':      {'density_mult': 0.35, 'rest_mult': 2.5, 'riff_mult': 0.0,  'range_octaves': 1},
+        'verse':      {'density_mult': 0.80, 'rest_mult': 1.0, 'riff_mult': 0.6,  'range_octaves': 2},
+        'pre_chorus': {'density_mult': 0.90, 'rest_mult': 0.8, 'riff_mult': 0.7,  'range_octaves': 2},
+        'chorus':     {'density_mult': 1.20, 'rest_mult': 0.5, 'riff_mult': 1.0,  'range_octaves': 2},
+        'bridge':     {'density_mult': 0.60, 'rest_mult': 1.5, 'riff_mult': 0.3,  'range_octaves': 1},
+        'solo':       {'density_mult': 1.40, 'rest_mult': 0.3, 'riff_mult': 1.2,  'range_octaves': 2},
+        'buildup':    {'density_mult': 1.00, 'rest_mult': 0.7, 'riff_mult': 0.8,  'range_octaves': 2},
+        'outro':      {'density_mult': 0.40, 'rest_mult': 2.0, 'riff_mult': 0.0,  'range_octaves': 1},
+    }
+
+    def _get_section_overrides(self, section: str) -> dict:
+        return self._SECTION_PARAMS.get(section, self._SECTION_PARAMS['verse'])
+
     def generate(self, ctx: SongContext, harmony_track: List[Dict]) -> List[Dict]:
         """
         Generate lead melody using Markov chain sampling + riff injection.
 
-        Riff injection: If the current sub-style has mapped riff patterns
-        (in riff_patterns.py), those iconic riffs are woven in at phrase
-        boundaries so the output is immediately identifiable.
-
-        Args:
-            ctx: The SongContext with key and scale
-            harmony_track: Harmony track (for reference)
-
-        Returns:
-            List of MIDI events for lead melody
+        Section-aware: adapts density, rest probability, riff injection, and
+        velocity to the current section/energy of each bar.
         """
         # Load mood-specific Markov model and style
         self._load_markov_model(ctx.mood)
@@ -121,31 +138,32 @@ class LeadGenerator:
         ticks_per_bar = TICKS_PER_BEAT * ctx.time_signature[0]
         total_ticks = ctx.total_bars * ticks_per_bar
 
-        # Get style parameters
+        # Get style parameters (base values — overridden per section)
         style = self._current_style
         style_name = style.get('name', '')
-        note_density = style.get('note_density', 0.5)
-        rest_probability = style.get('rest_probability', 0.15)
+        base_note_density = style.get('note_density', 0.5)
+        base_rest_probability = style.get('rest_probability', 0.15)
         swing = style.get('swing', 0.0)
         legato = style.get('legato', 0.7)
         preferred_intervals = style.get('preferred_intervals', [2, 3, 5, 7])
 
-        # Calculate notes based on density
-        avg_note_duration = TICKS_PER_BEAT / note_density
-        estimated_notes = int(total_ticks / avg_note_duration) + 10
+        # Calculate notes needed (over-estimate; we'll stop when ticks run out)
+        avg_note_duration = TICKS_PER_BEAT / base_note_density
+        estimated_notes = int(total_ticks / avg_note_duration) + 30
 
-        # Generate base melody using Markov chain
+        # Generate base melody (now returns (pitch, duration, technique))
         melody = self._generate_melody(ctx, estimated_notes, preferred_intervals)
 
-        # Build a riff bank for injection (transposed to the song's key)
+        # Build riff/arpeggio banks
         riff_bank = self._build_riff_bank(style_name, ctx.key_root_midi, self.lead_octave)
+        arp_bank = self._build_arpeggio_bank(style_name, ctx.key_root_midi, self.lead_octave)
 
-        # Riff injection probability - higher for styles with strong riff identity
-        riff_inject_prob = 0.5 if riff_bank else 0.0
+        # Base riff injection probability
+        base_riff_prob = 0.5 if (riff_bank or arp_bank) else 0.0
         if style.get('tapping') or style.get('wah_wah'):
-            riff_inject_prob = 0.65  # More riff-heavy for virtuoso styles
+            base_riff_prob = 0.65
         if style.get('articulation') in ('shred', 'gallop'):
-            riff_inject_prob = 0.60
+            base_riff_prob = 0.60
 
         # Place notes across the song
         current_tick = 0
@@ -153,77 +171,134 @@ class LeadGenerator:
         beat_counter = 0
         bars_since_riff = 0
         phrase_counter = 0
+        prev_section = None
 
         while current_tick < total_ticks and note_idx < len(melody):
-            # Get current bar context
+            # ---- Current bar context ----
             bar_idx = current_tick // ticks_per_bar
             if bar_idx >= len(ctx.timeline):
                 break
 
             bar = ctx.timeline[bar_idx]
             scale_notes = set(bar.scale_notes)
+            section = bar.section
+            energy = bar.energy
+
+            # Section overrides
+            sec = self._get_section_overrides(section)
+            rest_probability = min(0.9, base_rest_probability * sec['rest_mult'])
+            riff_inject_prob = base_riff_prob * sec['riff_mult']
+            range_octs = sec['range_octaves']
+
+            # Log section transitions
+            if section != prev_section:
+                prev_section = section
 
             # ---- RIFF INJECTION at phrase boundaries ----
-            # Every 4 bars (or 8 bars for spacey styles), try to inject a riff
             phrase_len = 8 if style.get('articulation') in ('legato', 'spacey', 'atmospheric', 'ethereal') else 4
             at_phrase_boundary = (bar_idx % phrase_len == 0) and bars_since_riff >= phrase_len
 
             if riff_bank and at_phrase_boundary and random.random() < riff_inject_prob:
-                riff = random.choice(riff_bank)
-                riff_events, riff_duration = self._place_riff(
-                    riff, current_tick, total_ticks, scale_notes,
-                    style, ticks_per_bar, beat_counter
-                )
-                events.extend(riff_events)
-                current_tick += riff_duration
-                beat_counter += len(riff_events)
+                if arp_bank and random.random() < 0.6:
+                    arp = random.choice(arp_bank)
+                    arp_events, arp_duration = self._place_arpeggio(
+                        arp, current_tick, total_ticks, scale_notes,
+                        style, ticks_per_bar, beat_counter
+                    )
+                    # Scale velocity by energy
+                    for ev in arp_events:
+                        ev['velocity'] = max(30, int(ev['velocity'] * energy))
+                    events.extend(arp_events)
+                    current_tick += arp_duration
+                    beat_counter += len(arp_events)
+                else:
+                    riff = random.choice(riff_bank)
+                    riff_events, riff_duration = self._place_riff(
+                        riff, current_tick, total_ticks, scale_notes,
+                        style, ticks_per_bar, beat_counter
+                    )
+                    for ev in riff_events:
+                        ev['velocity'] = max(30, int(ev['velocity'] * energy))
+                    events.extend(riff_events)
+                    current_tick += riff_duration
+                    beat_counter += len(riff_events)
                 bars_since_riff = 0
                 phrase_counter += 1
+                if random.random() < rest_probability * 1.5:
+                    current_tick += random.choice([TICKS_PER_BEAT, TICKS_PER_BEAT * 2])
+                continue
 
-                # Optional rest after riff
+            elif arp_bank and at_phrase_boundary and random.random() < riff_inject_prob:
+                arp = random.choice(arp_bank)
+                arp_events, arp_duration = self._place_arpeggio(
+                    arp, current_tick, total_ticks, scale_notes,
+                    style, ticks_per_bar, beat_counter
+                )
+                for ev in arp_events:
+                    ev['velocity'] = max(30, int(ev['velocity'] * energy))
+                events.extend(arp_events)
+                current_tick += arp_duration
+                beat_counter += len(arp_events)
+                bars_since_riff = 0
+                phrase_counter += 1
                 if random.random() < rest_probability * 1.5:
                     current_tick += random.choice([TICKS_PER_BEAT, TICKS_PER_BEAT * 2])
                 continue
 
             bars_since_riff = max(bars_since_riff, (current_tick // ticks_per_bar) - bar_idx + 1)
 
-            # ---- MARKOV NOTE ----
-            # Get note from melody
-            pitch, duration = melody[note_idx]
+            # ---- EXTRA REST for sparse sections (intro / outro) ----
+            if section in ('intro', 'outro', 'bridge') and random.random() < rest_probability:
+                current_tick += random.choice([TICKS_PER_BEAT, TICKS_PER_BEAT * 2])
+                continue
 
-            # Adjust pitch to current scale (snap to scale)
+            # ---- MARKOV NOTE ----
+            melody_item = melody[note_idx]
+            pitch = melody_item[0]
+            duration = melody_item[1]
+            technique = melody_item[2] if len(melody_item) > 2 else 'normal'
+
+            # Snap to scale
             if scale_notes:
                 pitch = self._snap_to_scale(pitch, scale_notes)
 
-            # Ensure note is in lead octave range (allow 2 octaves for expression)
-            pitch = self._adjust_to_range(pitch, self.lead_octave * 12, (self.lead_octave + 2) * 12)
+            # Restrict range based on section
+            min_pitch = self.lead_octave * 12
+            max_pitch = min_pitch + 12 * range_octs
+            pitch = self._adjust_to_range(pitch, min_pitch, max_pitch)
 
-            # Apply stylistic duration modification
+            # Duration: stretch in sparse sections, compress in dense
             duration = self._humanize_duration(duration, ctx.mood, style)
+            if sec['density_mult'] < 0.5:
+                duration = int(duration * 1.6)
+            elif sec['density_mult'] > 1.1:
+                duration = max(TICKS_PER_BEAT // 8, int(duration * 0.8))
 
-            # Apply swing feel (shift offbeats)
+            # Swing feel
             actual_tick = current_tick
             if swing > 0:
                 beat_position = (current_tick % TICKS_PER_BEAT) / TICKS_PER_BEAT
-                if 0.45 < beat_position < 0.55:  # Offbeat
+                if 0.45 < beat_position < 0.55:
                     actual_tick += int(TICKS_PER_BEAT * swing * 0.5)
 
-            # Apply legato to note duration
+            # Legato
             sounding_duration = int(duration * legato)
 
-            # Check we don't go past end
+            # Bounds check
             if actual_tick + duration > total_ticks:
                 duration = total_ticks - actual_tick
                 sounding_duration = int(duration * legato)
 
-            # Get velocity based on style
+            # Velocity — style-based then scaled by section energy
             velocity = self._get_velocity(actual_tick, ticks_per_bar, ctx.mood, style, beat_counter)
+            velocity = max(30, int(velocity * energy))
 
             events.append({
                 'note': pitch,
                 'start': actual_tick,
                 'duration': max(sounding_duration, TICKS_PER_BEAT // 8),
-                'velocity': velocity
+                'velocity': velocity,
+                'technique': technique,
             })
 
             current_tick += duration
@@ -231,18 +306,25 @@ class LeadGenerator:
             beat_counter += 1
             bars_since_riff += 1
 
-            # Apply rest based on style's probability
+            # Rest
             if random.random() < rest_probability:
                 rest_options = self._get_rest_options(style, ctx.mood)
                 rest_duration = random.choice(rest_options)
                 current_tick += rest_duration
+
+        # Apply guitar techniques (bends, hammer-ons, slides, vibrato, etc.)
+        scale_notes_set = set(get_scale_notes(ctx.key_root_midi, ctx.scale_type))
+        events = self._guitar_fx.process(events, style, scale_notes_set)
+        technique_count = sum(1 for e in events if e.get('type') in ('pitchbend', 'control_change'))
+        if technique_count > 0:
+            print(f"  [Lead] Applied guitar techniques: {technique_count} articulation events")
 
         return events
 
     # -----------------------------------------------------------------
     # Riff injection helpers
     # -----------------------------------------------------------------
-    def _build_riff_bank(self, style_name: str, key_root_midi: int, octave: int) -> List[List[Tuple[int, int]]]:
+    def _build_riff_bank(self, style_name: str, key_root_midi: int, octave: int) -> list:
         """Build a bank of transposed riff patterns for the current style."""
         bank = []
         # Try to get multiple riffs for variety
@@ -255,7 +337,7 @@ class LeadGenerator:
         seen = set()
         unique_bank = []
         for r in bank:
-            key = tuple((p, d) for p, d in r)
+            key = tuple(tuple(item) for item in r)
             if key not in seen:
                 seen.add(key)
                 unique_bank.append(r)
@@ -273,7 +355,10 @@ class LeadGenerator:
         current = start_tick
         legato = style.get('legato', 0.7)
 
-        for pitch, dur in riff:
+        for item in riff:
+            pitch = item[0]
+            dur = item[1]
+            technique = item[2] if len(item) > 2 else 'normal'
             if current + dur > total_ticks:
                 break
             # Snap to scale for musical correctness
@@ -289,14 +374,71 @@ class LeadGenerator:
                 'note': pitch,
                 'start': current,
                 'duration': sounding,
-                'velocity': vel
+                'velocity': vel,
+                'technique': technique,
             })
             current += dur
             beat_counter += 1
 
         total_dur = current - start_tick
         return events, total_dur
-    
+
+    # -----------------------------------------------------------------
+    # Arpeggio injection helpers (technique-annotated)
+    # -----------------------------------------------------------------
+    def _build_arpeggio_bank(self, style_name: str, key_root_midi: int, octave: int) -> list:
+        """Build a bank of transposed technique-annotated arpeggio patterns."""
+        bank = []
+        for _ in range(6):
+            arp = get_arpeggio_for_style(style_name)
+            if arp:
+                transposed = transpose_arpeggio(arp, key_root_midi, octave)
+                bank.append(transposed)
+        # De-duplicate
+        seen = set()
+        unique = []
+        for a in bank:
+            key = tuple((p, d, t) for p, d, t in a)
+            if key not in seen:
+                seen.add(key)
+                unique.append(a)
+        return unique
+
+    def _place_arpeggio(
+        self, arpeggio: list, start_tick: int, total_ticks: int,
+        scale_notes: Set[int], style: dict, ticks_per_bar: int, beat_counter: int
+    ) -> Tuple[List[Dict], int]:
+        """
+        Place a technique-annotated arpeggio as MIDI events.
+        Each note carries its technique hint for the effects processor.
+        Returns (events, total_duration_consumed).
+        """
+        events = []
+        current = start_tick
+        legato = style.get('legato', 0.7)
+
+        for pitch, dur, technique in arpeggio:
+            if current + dur > total_ticks:
+                break
+            if scale_notes:
+                pitch = self._snap_to_scale(pitch, scale_notes)
+            pitch = self._adjust_to_range(pitch, self.lead_octave * 12, (self.lead_octave + 2) * 12)
+            sounding = max(int(dur * legato), TICKS_PER_BEAT // 8)
+            vel = self._get_velocity(current, ticks_per_bar, '', style, beat_counter)
+            vel = min(127, vel + 5)
+            events.append({
+                'note': pitch,
+                'start': current,
+                'duration': sounding,
+                'velocity': vel,
+                'technique': technique,
+            })
+            current += dur
+            beat_counter += 1
+
+        total_dur = current - start_tick
+        return events, total_dur
+
     def _get_rest_options(self, style: dict, mood: str) -> List[int]:
         """Get appropriate rest durations based on mood and style."""
         articulation = style.get('articulation', 'medium')
@@ -314,13 +456,13 @@ class LeadGenerator:
             # Standard rests
             return [TICKS_PER_BEAT // 2, TICKS_PER_BEAT]
     
-    def _generate_melody(self, ctx: SongContext, length: int, preferred_intervals: List[int]) -> List[Tuple[int, int]]:
+    def _generate_melody(self, ctx: SongContext, length: int, preferred_intervals: List[int]) -> list:
         """
         Generate raw melody using Markov chain.
         Applies preferred intervals from the current style.
         
         Returns:
-            List of (pitch, duration) tuples
+            List of (pitch, duration, technique) tuples
         """
         # Get scale notes for filtering
         scale_notes = set(get_scale_notes(ctx.key_root_midi, ctx.scale_type))
@@ -337,15 +479,19 @@ class LeadGenerator:
         
         return melody
     
-    def _shape_intervals(self, melody: List[Tuple[int, int]], preferred_intervals: List[int], scale_notes: Set[int]) -> List[Tuple[int, int]]:
+    def _shape_intervals(self, melody: list, preferred_intervals: List[int], scale_notes: Set[int]) -> list:
         """
         Subtly shape melodic intervals to match style preferences.
         Doesn't force changes but nudges melody toward preferred intervals.
+        Preserves technique hints from Markov output.
         """
         shaped = [melody[0]]  # Keep first note
         
         for i in range(1, len(melody)):
-            pitch, duration = melody[i]
+            item = melody[i]
+            pitch = item[0]
+            duration = item[1]
+            technique = item[2] if len(item) > 2 else 'normal'
             prev_pitch = shaped[i-1][0]
             
             # Calculate current interval (in semitones)
@@ -369,7 +515,7 @@ class LeadGenerator:
                     # Pick a candidate close to the original pitch
                     pitch = min(candidates, key=lambda x: abs(x - pitch))
             
-            shaped.append((pitch, duration))
+            shaped.append((pitch, duration, technique))
         
         return shaped
     
