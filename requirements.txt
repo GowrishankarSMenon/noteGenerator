@@ -23,5 +23,8 @@ pyfluidsynth>=1.3.0
 # UI
 tkinter
 
+# Playback
+pygame>=2.1.0
+
 # Optional
 matplotlib>=3.4.0

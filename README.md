@@ -29,15 +29,35 @@ Symphony Generator is an intelligent music composition system that creates compl
 
 ## ✨ Features
 
+### Core
 - **6 Mood Presets**: Happy, Sad, Rock, Jazz, Electronic, Calm
 - **Multi-Track Generation**: Drums, Bass, Harmony, Lead Melody
 - **Sequential Hierarchical Architecture**: Each instrument "listens" to previous instruments
-- **Markov Chain Melody**: AI-powered lead melody generation
+- **Markov Chain Melody**: AI-powered lead melody generation with per-mood datasets
 - **Scale-Aware Composition**: Notes automatically snap to valid scales
 - **MIDI & WAV Output**: Export to standard formats
 - **GUI & CLI Modes**: Flexible user interfaces
 - **Customizable Duration**: 8 to 64 bars
 - **Humanized Output**: Velocity variations and rhythmic nuances
+
+### Style System
+- **30+ Named Drum Patterns**: Legendary drummer-inspired patterns (Bonham, Peart, Grohl, Moon, etc.)
+- **36 Lead Melody Styles**: Guitarist/artist-inspired styles with unique parameters (Gilmour, Page, Slash, Hendrix, etc.)
+- **25+ Transposable Riff Patterns**: Iconic rock, blues, and arpeggio patterns mapped to lead styles
+- **20 Quick Presets**: One-click style combos (Classic Rock, Pink Floyd, Metal Thunder, Jazz Club, etc.)
+- **3 Selection Modes**: Auto (mood-based), Random, or Manual pick for both drums and lead
+
+### Audio Effects
+- **5 Real-Time DSP Effects**: Reverb, Delay, Distortion, Phaser, Chorus — applied per-section
+- **7 Effects Presets**: Gilmour Atmospheric, Van Halen Crunch, Space Rock, Clean Jazz, and more
+- **Per-Section Control**: Independent effect levels (0–100) for Drums, Bass, Harmony, and Lead
+
+### UI
+- **6-Tab Interface**: Generate, Style Selection, Note Properties, Effects, Section View, Recent Tracks
+- **Embedded Music Player**: Play/Pause, Stop, Seek, Skip ±5s, Loop, Volume, Prev/Next track
+- **Auto-Play Toggle**: Optional auto-playback after generation
+- **Section Properties Editor**: Per-track Volume, Attack, Sustain sliders
+- **Recent Tracks Browser**: Browse and replay previously generated output
 
 ---
 
@@ -88,8 +108,8 @@ The Symphony Generator follows a **Sequential Hierarchical Architecture** with c
 | **Planning** | `conductor.py` | Song structure, key selection, chord progressions |
 | **Generation** | `drums.py`, `bass.py`, `harmony.py`, `lead.py` | Create MIDI events for each instrument |
 | **Models** | `context.py`, `markov_chain.py` | Data structures, AI melody engine |
-| **Utilities** | `music_theory.py`, `midi_renderer.py`, `audio_engine.py` | Helper functions, file I/O |
-| **Config** | `settings.py` | Constants, mood definitions, patterns |
+| **Utilities** | `music_theory.py`, `midi_renderer.py`, `audio_engine.py`, `effects_processor.py` | Helper functions, DSP effects, file I/O |
+| **Config** | `settings.py`, `drum_patterns.py`, `lead_styles.py`, `riff_patterns.py`, `style_config.py` | Constants, mood definitions, style presets, patterns |
 
 ---
 
@@ -99,13 +119,24 @@ The Symphony Generator follows a **Sequential Hierarchical Architecture** with c
 symphony_gen/
 │
 ├── assets/                          # Static data files
-│   ├── dataset.csv                  # Training data for Markov chain
+│   ├── dataset.csv                  # Master training data for Markov chain
+│   ├── datasets/                    # Per-mood training data
+│   │   ├── happy.csv
+│   │   ├── sad.csv
+│   │   ├── rock.csv
+│   │   ├── jazz.csv
+│   │   ├── electronic.csv
+│   │   └── calm.csv
 │   └── fonts/
 │       └── FluidR3_GM.sf2          # SoundFont file (not in git - download separately)
 │
 ├── config/                          # Configuration & Constants
 │   ├── __init__.py
-│   └── settings.py                  # Global constants, mood configs, drum patterns
+│   ├── settings.py                  # Global constants, mood configs, instrument map
+│   ├── drum_patterns.py             # 30+ named drum patterns & fills
+│   ├── lead_styles.py               # 36 lead melody styles per mood
+│   ├── riff_patterns.py             # Transposable riff & arpeggio library
+│   └── style_config.py              # Style selection modes & 20 quick presets
 │
 ├── core/                            # Intelligence Layer
 │   ├── __init__.py
@@ -114,10 +145,10 @@ symphony_gen/
 │   │
 │   └── generators/                  # THE BAND: Instrument-specific generators
 │       ├── __init__.py
-│       ├── drums.py                 # Drum patterns and fills
+│       ├── drums.py                 # Drum patterns, fills, style-aware generation
 │       ├── bass.py                  # Bass lines locked to kick drum
 │       ├── harmony.py               # Chords, pads, arpeggios
-│       └── lead.py                  # Markov chain melody generation
+│       └── lead.py                  # Markov chain melody with style parameters
 │
 ├── models/                          # Data Structures
 │   ├── __init__.py
@@ -128,11 +159,12 @@ symphony_gen/
 │   ├── __init__.py
 │   ├── music_theory.py              # Note/MIDI conversion, scales, chords
 │   ├── midi_renderer.py             # MIDI file creation (Type 1 multi-track)
-│   └── audio_engine.py              # FluidSynth wrapper for WAV rendering
+│   ├── audio_engine.py              # FluidSynth/pyfluidsynth WAV rendering
+│   └── effects_processor.py         # DSP effects (reverb, delay, distortion, phaser, chorus)
 │
 ├── ui/                              # User Interface
 │   ├── __init__.py
-│   └── main_window.py               # Tkinter GUI application
+│   └── main_window.py               # Tkinter GUI (6-tab + embedded music player)
 │
 ├── output/                          # Generated files (auto-created)
 │   └── *.mid, *.wav                 # Generated music files
@@ -403,13 +435,10 @@ git checkout iteration6
 ### Step 2: Install Python Dependencies
 
 ```bash
-pip install mido
-```
-
-Or using requirements.txt:
-```bash
 pip install -r requirements.txt
 ```
+
+This installs: `mido`, `python-rtmidi`, `numpy`, `pandas`, `pyfluidsynth`, `pygame`, `matplotlib`
 
 ### Step 3: Install FluidSynth
 
@@ -486,9 +515,14 @@ python main.py
 1. **Select Mood** - Choose from dropdown (happy, sad, rock, jazz, electronic, calm)
 2. **Set Duration** - Use slider (8-64 bars)
 3. **Optional BPM** - Enter specific tempo or leave empty for auto
-4. **Render to WAV** - Check to create audio file (requires FluidSynth)
-5. **Click "Generate Music"** - Wait for generation
-6. **Play** - Use Play MIDI or Play WAV buttons
+4. **Master Volume** - Adjust output volume (0–127)
+5. **Render to WAV** - Check to create audio file (requires FluidSynth)
+6. **Auto-play** - Optionally auto-play after generation
+7. **Style Selection Tab** - Pick drum patterns, lead styles, or use Quick Presets
+8. **Note Properties Tab** - Adjust per-section volume, attack, sustain
+9. **Effects Tab** - Configure per-section reverb, delay, distortion, phaser, chorus
+10. **Click "Generate Music"** - Wait for generation
+11. **Play** - Use Play MIDI, Play WAV, or the embedded music player bar
 
 ### CLI Mode
 
@@ -750,6 +784,45 @@ Solution: Install tkinter
 Ubuntu/Debian: sudo apt install python3-tk
 Fedora: sudo dnf install python3-tkinter
 ```
+
+---
+
+## 🆕 What's New in Iteration 6
+
+### Style Selection System
+Full control over the musical style of generated tracks. Choose from **30+ legendary drummer-inspired drum patterns** (Bonham, Peart, Grohl, Moon, Phil Rudd, and more) and **36 lead melody styles** (Gilmour, Page, Slash, Hendrix, Dimebag, BB King, etc.). Use **Auto** mode for mood-based defaults, **Random** for surprise, or **Manual** to hand-pick exact styles. **20 Quick Presets** offer one-click combos like "Pink Floyd", "Classic Rock", "Metal Thunder", "Jazz Club".
+
+### Audio Effects Engine
+A full DSP effects chain applied per-section during WAV rendering:
+- **Reverb** — Multi-tap Schroeder-style with early reflections
+- **Delay** — Stereo ping-pong echo
+- **Distortion** — Tanh waveshaping with harmonic warmth
+- **Phaser** — 4-stage cascaded allpass modulation
+- **Chorus** — 3-voice detuned delay with stereo spread
+
+Effects are independently adjustable (0–100) for each section (Drums, Bass, Harmony, Lead), with 7 built-in presets.
+
+### Per-Mood Datasets
+Separate Markov chain training data for each mood (happy, sad, rock, jazz, electronic, calm) enables mood-specific melodic characteristics.
+
+### Riff & Arpeggio Library
+25+ transposable interval-based riff patterns mapped to lead styles, including iconic rock riffs, blues licks, and arpeggio patterns.
+
+### Enhanced UI
+- **6-tab notebook**: Generate, Style Selection, Note Properties, Effects, Section View, Recent Tracks
+- **Note Properties editor**: Per-section Volume, Attack, Sustain sliders
+- **Effects panel**: Per-section effect sliders + preset buttons
+- **Section View**: Post-generation analysis showing overview, individual track details, and timeline
+- **Recent Tracks**: Browse and replay previously generated output files
+- **Auto-play toggle**: Optional auto-playback after generation (off by default)
+
+### Playback Fixes
+- Fixed `mixer not initialized` errors when switching between MIDI and WAV playback
+- Pygame mixer state is now properly checked and re-initialized as needed
+- Player controls are safely guarded against uninitialized audio state
+
+### Updated Dependencies
+Added `numpy`, `pandas`, `pyfluidsynth`, `pygame`, `python-rtmidi`, `matplotlib` to requirements.
 
 ---
 

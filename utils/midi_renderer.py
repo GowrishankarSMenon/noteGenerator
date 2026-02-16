@@ -68,6 +68,10 @@ class MidiRenderer:
         if channel != DRUM_CHANNEL:
             track.append(Message('program_change', channel=channel, program=program, time=0))
         
+        # Set channel volume (CC7) and pan center (CC10) for audibility
+        track.append(Message('control_change', channel=channel, control=7, value=100, time=0))
+        track.append(Message('control_change', channel=channel, control=10, value=64, time=0))
+        
         # Convert events to MIDI messages
         # We need to sort by time and convert to delta times
         midi_events = []
@@ -164,6 +168,46 @@ class MidiRenderer:
         
         return filepath
     
+    def render_single_track(
+        self,
+        name: str,
+        events: List[Dict],
+        channel: int,
+        program: int,
+        filename: str = None
+    ) -> str:
+        """
+        Render a single instrument track to its own MIDI file.
+        Used for per-track rendering when applying per-section effects.
+
+        Args:
+            name: Track name
+            events: Note events list
+            channel: MIDI channel
+            program: MIDI program number
+            filename: Output filename (auto-generated if None)
+
+        Returns:
+            Full path to the saved single-track MIDI file
+        """
+        mid = MidiFile(type=1, ticks_per_beat=self.ticks_per_beat)
+
+        # Tempo track
+        mid.tracks.append(self.create_tempo_track())
+
+        # Single instrument track
+        if events:
+            track = self.create_instrument_track(name, events, channel, program)
+            mid.tracks.append(track)
+
+        if filename is None:
+            filename = f"_temp_{name.lower()}.mid"
+
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        mid.save(filepath)
+        return filepath
+
     def get_program_for_instrument(self, instrument_name: str) -> int:
         """Get MIDI program number for an instrument name."""
         return INSTRUMENTS.get(instrument_name, 0)

@@ -46,17 +46,30 @@ def check_assets():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print(f"✅ Output directory: {OUTPUT_DIR}")
     
-    # Check for FluidSynth
-    import subprocess
+    # Check for FluidSynth (pyfluidsynth library or CLI)
+    fluidsynth_ok = False
     try:
-        result = subprocess.run(['fluidsynth', '--version'], capture_output=True)
-        if result.returncode == 0:
-            print("✅ FluidSynth is installed")
-        else:
-            print("⚠️  FluidSynth not responding correctly")
-    except FileNotFoundError:
-        print("⚠️  FluidSynth not found in PATH")
-        print("   Install FluidSynth for audio rendering: https://www.fluidsynth.org/")
+        import fluidsynth
+        fs = fluidsynth.Synth()
+        fs.delete()
+        print("✅ FluidSynth available (pyfluidsynth library)")
+        fluidsynth_ok = True
+    except (ImportError, Exception):
+        pass
+    
+    if not fluidsynth_ok:
+        import subprocess
+        try:
+            result = subprocess.run(['fluidsynth', '--version'], capture_output=True)
+            if result.returncode == 0:
+                print("✅ FluidSynth available (CLI)")
+                fluidsynth_ok = True
+        except FileNotFoundError:
+            pass
+    
+    if not fluidsynth_ok:
+        print("⚠️  FluidSynth not found")
+        print("   Install pyfluidsynth: pip install pyfluidsynth")
     
     print("=" * 50)
     return all_good

@@ -40,20 +40,132 @@ DRUM_CHANNEL = 9  # Channel 10 in MIDI (0-indexed)
 
 # General MIDI Program Numbers (0-indexed)
 INSTRUMENTS = {
+    # Pianos & Keys
     'piano': 0,
+    'bright_piano': 1,
+    'electric_grand': 2,
+    'honky_tonk': 3,
     'electric_piano': 4,
+    'electric_piano_2': 5,
+    'harpsichord': 6,
+    'clavinet': 7,
+    'celesta': 8,
+    'vibraphone': 11,
+    'marimba': 12,
+    
+    # Organs
+    'organ': 16,
+    'rock_organ': 18,
+    'church_organ': 19,
+    'accordion': 21,
+    'harmonica': 22,
+    
+    # Guitars
+    'nylon_guitar': 24,
     'acoustic_guitar': 25,
-    'electric_guitar': 27,
+    'jazz_guitar': 26,
+    'clean_guitar': 27,
+    'muted_guitar': 28,
+    'overdrive_guitar': 29,
     'distortion_guitar': 30,
+    'harmonics_guitar': 31,
+    
+    # Bass
     'acoustic_bass': 32,
     'electric_bass': 33,
+    'picked_bass': 34,
+    'fretless_bass': 35,
     'slap_bass': 36,
+    'slap_bass_2': 37,
     'synth_bass': 38,
+    'synth_bass_2': 39,
+    
+    # Strings & Orchestral
+    'violin': 40,
+    'viola': 41,
+    'cello': 42,
+    'contrabass': 43,
+    'tremolo_strings': 44,
+    'pizzicato': 45,
+    'orchestral_harp': 46,
+    'timpani': 47,
     'strings': 48,
-    'synth_pad': 88,
-    'synth_lead': 80,
-    'flute': 73,
+    'slow_strings': 49,
+    'synth_strings': 50,
+    'synth_strings_2': 51,
+    'choir_aahs': 52,
+    'voice_oohs': 53,
+    'orchestra_hit': 55,
+    
+    # Brass
+    'trumpet': 56,
+    'trombone': 57,
+    'tuba': 58,
+    'muted_trumpet': 59,
+    'french_horn': 60,
+    'brass_section': 61,
+    'synth_brass': 62,
+    
+    # Woodwinds
+    'soprano_sax': 64,
+    'alto_sax': 65,
+    'tenor_sax': 66,
+    'baritone_sax': 67,
     'saxophone': 65,
+    'oboe': 68,
+    'english_horn': 69,
+    'bassoon': 70,
+    'clarinet': 71,
+    'piccolo': 72,
+    'flute': 73,
+    'recorder': 74,
+    'pan_flute': 75,
+    'bottle_blow': 76,
+    'shakuhachi': 77,
+    'whistle': 78,
+    'ocarina': 79,
+    
+    # Synth Leads
+    'square_lead': 80,
+    'synth_lead': 80,
+    'sawtooth_lead': 81,
+    'calliope_lead': 82,
+    'chiff_lead': 83,
+    'charang_lead': 84,
+    'voice_lead': 85,
+    'fifths_lead': 86,
+    'bass_lead': 87,
+    
+    # Synth Pads
+    'new_age_pad': 88,
+    'synth_pad': 88,
+    'warm_pad': 89,
+    'polysynth': 90,
+    'choir_pad': 91,
+    'bowed_pad': 92,
+    'metallic_pad': 93,
+    'halo_pad': 94,
+    'sweep_pad': 95,
+    
+    # Synth FX
+    'rain_fx': 96,
+    'soundtrack_fx': 97,
+    'crystal_fx': 98,
+    'atmosphere_fx': 99,
+    'brightness_fx': 100,
+    'goblins_fx': 101,
+    'echoes_fx': 102,
+    'sci_fi_fx': 103,
+    
+    # Ethnic
+    'sitar': 104,
+    'banjo': 105,
+    'shamisen': 106,
+    'koto': 107,
+    'kalimba': 108,
+    'bagpipe': 109,
+    'fiddle': 110,
+    'shanai': 111,
 }
 
 # Drum Note Numbers (General MIDI)
