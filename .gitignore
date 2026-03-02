@@ -4,10 +4,6 @@
 *.mid
 *.wav
 
-# SoundFont files (too large for git)
-*.sf2
-assets/fonts/*.sf2
-
 # Python
 __pycache__/
 *.py[cod]
