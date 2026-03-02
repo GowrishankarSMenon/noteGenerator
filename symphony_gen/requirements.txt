@@ -1,0 +1,30 @@
+# Symphony Generator - Dependencies# Core dependencies
+
+
+
+
+
+
+
+
+
+
+
+
+
+# pytest>=7.0.0# Optional development dependencies#       - Linux: sudo apt install fluidsynth#       - macOS: brew install fluid-synth#       - Windows: Download from https://github.com/FluidSynth/fluidsynth/releases# Note: FluidSynth must be installed separately (system package, not pip)# Note: tkinter comes with Python standard library (no pip install needed)mido>=1.2.10# Core MIDI librarymido>=1.2.10
+python-rtmidi>=1.4.9
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Audio processing
+pyfluidsynth>=1.3.0
+
+# UI
+tkinter
+
+# Playback
+pygame>=2.1.0
+
+# Optional
+matplotlib>=3.4.0
